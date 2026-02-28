@@ -265,36 +265,47 @@
     const variance = radii.reduce((sum, r) => sum + (r - avgR) ** 2, 0) / radii.length;
     const stdDev = Math.sqrt(variance);
 
-    // Circularity score based on coefficient of variation — more forgiving multiplier
-    const cv = stdDev / avgR; // lower = more circular
-    let circScore = Math.max(0, 100 - cv * 180);
+    // Circularity score — stricter multiplier
+    const cv = stdDev / avgR;
+    let circScore = Math.max(0, 100 - cv * 280);
 
-    // Coverage check: penalize if the drawn angle range doesn't close — softer penalty
+    // Coverage check — tighter tolerance, heavier penalty
     const angles = points.map(p => Math.atan2(p.y - cy, p.x - cx));
     const sorted = [...angles].sort((a, b) => a - b);
     let maxGap = 0;
     for (let i = 1; i < sorted.length; i++) maxGap = Math.max(maxGap, sorted[i] - sorted[i-1]);
     const endGap = (sorted[0] + 2 * Math.PI) - sorted[sorted.length - 1];
     maxGap = Math.max(maxGap, endGap);
-    const coveragePenalty = Math.max(0, (maxGap / (2 * Math.PI)) - 0.15) * 80;
+    const coveragePenalty = Math.max(0, (maxGap / (2 * Math.PI)) - 0.05) * 140;
     circScore = Math.max(0, circScore - coveragePenalty);
 
-    // Closing gap penalty — softer
+    // Closing gap penalty — harder
     const startPt = points[0], endPt = points[points.length - 1];
     const closingGap = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-    const closingPenalty = Math.min(8, (closingGap / avgR) * 10);
+    const closingPenalty = Math.min(18, (closingGap / avgR) * 25);
     circScore = Math.max(0, circScore - closingPenalty);
 
-    // Ellipse penalty — softer
+    // Ellipse penalty — harder
     const maxR = Math.max(...radii);
     const minR = Math.min(...radii);
-    const ellipticPenalty = ((maxR - minR) / avgR) * 15;
+    const ellipticPenalty = ((maxR - minR) / avgR) * 35;
     circScore = Math.max(0, circScore - ellipticPenalty);
 
-    // Brutal exponential ceiling — generous up to ~85%, then crushingly hard above that.
-    // Asymptote at 99.5%, but reaching 95% requires near-machine precision.
+    // Smoothness penalty — punish shaky/jagged lines
+    let totalJitter = 0;
+    for (let i = 2; i < points.length; i++) {
+      const dx1 = points[i-1].x - points[i-2].x, dy1 = points[i-1].y - points[i-2].y;
+      const dx2 = points[i].x - points[i-1].x,   dy2 = points[i].y - points[i-1].y;
+      const angle = Math.abs(Math.atan2(dy2, dx2) - Math.atan2(dy1, dx1));
+      totalJitter += Math.min(angle, Math.PI * 2 - angle);
+    }
+    const avgJitter = totalJitter / points.length;
+    const jitterPenalty = Math.min(20, avgJitter * 18);
+    circScore = Math.max(0, circScore - jitterPenalty);
+
+    // Savage exponential ceiling — scores compress hard above 70%, near impossible above 90%
     const CEILING = 99.5;
-    circScore = CEILING * (1 - Math.pow(1 - circScore / 100, 3.5));
+    circScore = CEILING * (1 - Math.pow(1 - circScore / 100, 5));
     circScore = Math.min(CEILING, circScore);
 
     showResult(circScore, cx, cy, avgR);
@@ -332,8 +343,8 @@
     if (s >= 90) return '🟡 Near Perfect';
     if (s >= 80) return '🟢 Excellent';
     if (s >= 70) return '🟨 Great';
-    if (s >= 55) return '🟧 ehh';
-    if (s >= 40) return '🟥 ur bad lol';
+    if (s >= 55) return '🟧 Good';
+    if (s >= 40) return '🟥 Decent';
     return '⬜ Bro... try again 😭';
   }
 
